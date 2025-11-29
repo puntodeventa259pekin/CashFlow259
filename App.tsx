@@ -1,12 +1,12 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Dashboard } from './components/Dashboard';
 import { TransactionForm } from './components/TransactionForm';
 import { HolderList } from './components/HolderList';
 import { DebtList } from './components/DebtList';
 import { Inventory } from './components/Inventory';
 import { Login } from './components/Login';
-import { Holder, Transaction, Debt, TransactionType, DebtType, TransactionStatus, UserRole, InventoryItem, UserPermissions, InventoryMovement, InventoryUnit, InventorySection, LogEntry } from './types';
+import { Holder, Transaction, Debt, TransactionType, DebtType, TransactionStatus, UserRole, InventoryItem, UserPermissions, InventoryMovement, InventoryUnit, InventorySection, LogEntry, SyncStatus, AppState } from './types';
+import { initGoogleDrive, handleAuthClick, findDbFile, loadFromDrive, saveToDrive } from './services/driveService';
 
 // --- DATABASE CONFIGURATION ---
 const DB_KEY = 'CASHFLOW_PRO_DB_V1';
@@ -124,11 +124,58 @@ const App: React.FC = () => {
   const [dateFilterStart, setDateFilterStart] = useState('');
   const [dateFilterEnd, setDateFilterEnd] = useState('');
 
+  // --- GOOGLE DRIVE STATE ---
+  const [isDriveReady, setIsDriveReady] = useState(false);
+  const [driveFileId, setDriveFileId] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('offline');
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Initialize Drive API
+  useEffect(() => {
+    initGoogleDrive(() => {
+      setIsDriveReady(true);
+      setSyncStatus('idle');
+    });
+  }, []);
+
+  const handleDriveConnect = () => {
+    handleAuthClick(async () => {
+      setSyncStatus('syncing');
+      try {
+        const fileId = await findDbFile();
+        if (fileId) {
+          setDriveFileId(fileId);
+          const driveData = await loadFromDrive(fileId);
+          if (driveData) {
+            // Overwrite local state with Drive data
+            setHolders(driveData.holders);
+            setTransactions(driveData.transactions);
+            setDebts(driveData.debts);
+            setInventory(driveData.inventory);
+            setInventoryMovements(driveData.inventoryMovements);
+            setLogs(driveData.logs);
+            setUnits(driveData.units || INITIAL_UNITS);
+            setSections(driveData.sections || INITIAL_SECTIONS);
+            alert("Datos cargados exitosamente desde Google Drive.");
+          }
+        } else {
+          // File doesn't exist, we will create it on next save
+          alert("Conectado. Se creará un archivo nuevo en tu Drive al guardar.");
+        }
+        setSyncStatus('saved');
+      } catch (error) {
+        console.error("Drive Error:", error);
+        setSyncStatus('error');
+        alert("Error al conectar con Drive. Verifica la consola.");
+      }
+    });
+  };
+
   // --- PERSISTENCE EFFECTS ---
   
-  // 1. Auto-save Database on any data change
+  // 1. Auto-save Database (LocalStorage + Drive)
   useEffect(() => {
-    const dataToSave = {
+    const dataToSave: AppState = {
       holders,
       transactions,
       debts,
@@ -138,8 +185,27 @@ const App: React.FC = () => {
       units,
       sections
     };
+    
+    // Save to LocalStorage immediately
     localStorage.setItem(DB_KEY, JSON.stringify(dataToSave));
-  }, [holders, transactions, debts, inventory, inventoryMovements, logs, units, sections]);
+
+    // Debounce Save to Drive
+    if (driveFileId || (isDriveReady && syncStatus === 'saved')) {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      
+      setSyncStatus('syncing');
+      saveTimeoutRef.current = setTimeout(async () => {
+        try {
+          const newFileId = await saveToDrive(dataToSave, driveFileId);
+          if (!driveFileId) setDriveFileId(newFileId);
+          setSyncStatus('saved');
+        } catch (err) {
+          setSyncStatus('error');
+        }
+      }, 2000); // Wait 2 seconds of inactivity
+    }
+
+  }, [holders, transactions, debts, inventory, inventoryMovements, logs, units, sections, driveFileId, isDriveReady]);
 
   // 2. Auto-save Session on user change
   useEffect(() => {
@@ -188,8 +254,6 @@ const App: React.FC = () => {
 
   const handleLogin = (user: Holder) => {
     // If we have saved data, we must find the latest version of this user from 'holders' state
-    // because the 'user' passed from Login component might come from INITIAL_HOLDERS if it's the first login,
-    // but we want the one with the current balance.
     const dbUser = holders.find(h => h.id === user.id) || user;
     
     setCurrentUser(dbUser);
@@ -674,6 +738,36 @@ const App: React.FC = () => {
           )}
 
           <div className="pt-8 mt-auto pb-20 md:pb-0">
+            {/* Drive Sync Status Indicator */}
+            {isSidebarOpen && (
+              <div className="px-2 mb-4">
+                 <div className={`text-xs p-2 rounded flex items-center gap-2 ${
+                   syncStatus === 'saved' ? 'text-green-600 bg-green-50' : 
+                   syncStatus === 'syncing' ? 'text-blue-600 bg-blue-50' :
+                   syncStatus === 'error' ? 'text-red-600 bg-red-50' : 'text-slate-400 bg-slate-50'
+                 }`}>
+                    <div className={`w-2 h-2 rounded-full ${
+                      syncStatus === 'saved' ? 'bg-green-500' :
+                      syncStatus === 'syncing' ? 'bg-blue-500 animate-pulse' :
+                      syncStatus === 'error' ? 'bg-red-500' : 'bg-slate-300'
+                    }`}></div>
+                    <span className="truncate">
+                      {syncStatus === 'saved' ? 'Drive Sincronizado' : 
+                       syncStatus === 'syncing' ? 'Guardando en Drive...' :
+                       syncStatus === 'error' ? 'Error Sync Drive' : 'Drive Inactivo'}
+                    </span>
+                 </div>
+                 {isDriveReady && !driveFileId && (
+                   <button 
+                     onClick={handleDriveConnect} 
+                     className="mt-2 w-full text-xs bg-indigo-100 text-indigo-700 py-1 rounded hover:bg-indigo-200 transition-colors"
+                   >
+                     Conectar Drive
+                   </button>
+                 )}
+              </div>
+            )}
+
             <button 
               onClick={handleLogout}
               className={`w-full flex items-center p-2 rounded-lg text-red-500 hover:bg-red-50 transition-colors ${isSidebarOpen ? 'flex-row gap-3 px-4 justify-start' : 'flex-col justify-center px-2'}`}
@@ -716,15 +810,30 @@ const App: React.FC = () => {
                 </p>
              </div>
           </div>
-          <button 
-            onClick={() => setIsTransactionModalOpen(true)}
-            className="w-full md:w-auto bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 md:py-2 rounded-lg font-medium shadow-sm shadow-indigo-200 transition-all flex items-center justify-center gap-2"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-            </svg>
-            Nueva Transacción
-          </button>
+          
+          <div className="flex gap-2 w-full md:w-auto">
+             {!driveFileId && isDriveReady && (
+               <button 
+                onClick={handleDriveConnect}
+                className="w-full md:w-auto bg-green-600 hover:bg-green-700 text-white px-4 py-3 md:py-2 rounded-lg font-medium shadow-sm transition-all flex items-center justify-center gap-2"
+               >
+                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                   <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                 </svg>
+                 Conectar Drive
+               </button>
+             )}
+
+             <button 
+              onClick={() => setIsTransactionModalOpen(true)}
+              className="w-full md:w-auto bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 md:py-2 rounded-lg font-medium shadow-sm shadow-indigo-200 transition-all flex items-center justify-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+              </svg>
+              Nueva Transacción
+            </button>
+          </div>
         </header>
 
         {currentView === View.DASHBOARD && (

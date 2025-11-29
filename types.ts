@@ -18,6 +18,8 @@ export enum TransactionStatus {
 
 export type UserRole = 'admin' | 'accountant' | 'employee' | 'partner';
 
+export type SyncStatus = 'idle' | 'syncing' | 'saved' | 'error' | 'offline';
+
 export interface UserPermissions {
   inventory: boolean;
   debts: boolean; // Access to Ctas
@@ -111,5 +113,8 @@ export interface AppState {
   transactions: Transaction[];
   debts: Debt[];
   inventory: InventoryItem[];
+  inventoryMovements: InventoryMovement[];
   logs: LogEntry[];
+  units: InventoryUnit[];
+  sections: InventorySection[];
 }

@@ -13,6 +13,8 @@ export default defineConfig(({ mode }) => {
     define: {
       // Injects the API key into the built code
       'process.env.API_KEY': JSON.stringify(env.API_KEY || process.env.API_KEY),
+      'process.env.GOOGLE_CLIENT_ID': JSON.stringify(env.VITE_GOOGLE_CLIENT_ID),
+      'process.env.GOOGLE_API_KEY': JSON.stringify(env.VITE_GOOGLE_API_KEY),
       // Polyfill for other process.env accesses to avoid runtime errors
       'process.env': {}
     },
