@@ -3,19 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CashFlow Pro</title>
+    <title>CashFlow Pro Desktop</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
       body {
         font-family: 'Inter', sans-serif;
         background-color: #f8fafc;
+        /* Evitar scroll elástico en desktop app */
+        overscroll-behavior: none;
       }
     </style>
-    <!-- Google API Scripts -->
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script src="https://apis.google.com/js/api.js" async defer></script>
-<script type="importmap">
+  <script type="importmap">
 {
   "imports": {
     "react": "https://aistudiocdn.com/react@^19.2.0",
@@ -24,7 +23,12 @@
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
     "recharts": "https://aistudiocdn.com/recharts@^3.5.1",
     "vite": "https://aistudiocdn.com/vite@^7.2.4",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "path": "https://aistudiocdn.com/path@^0.12.7",
+    "electron": "https://aistudiocdn.com/electron@^39.2.4",
+    "fs": "https://aistudiocdn.com/fs@^0.0.1-security",
+    "sqlite3": "https://aistudiocdn.com/sqlite3@^5.1.7",
+    "url": "https://aistudiocdn.com/url@^0.11.4"
   }
 }
 </script>

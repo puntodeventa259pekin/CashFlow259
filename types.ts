@@ -6,8 +6,8 @@ export enum TransactionType {
 }
 
 export enum DebtType {
-  RECEIVABLE = 'POR_COBRAR', // Money owed to us (Anticipos fit here)
-  PAYABLE = 'POR_PAGAR',     // Money we owe
+  RECEIVABLE = 'POR_COBRAR', 
+  PAYABLE = 'POR_PAGAR',     
 }
 
 export enum TransactionStatus {
@@ -18,19 +18,19 @@ export enum TransactionStatus {
 
 export type UserRole = 'admin' | 'accountant' | 'employee' | 'partner';
 
-export type SyncStatus = 'idle' | 'syncing' | 'saved' | 'error' | 'offline';
+export type SyncStatus = 'idle' | 'syncing' | 'saved' | 'error';
 
 export interface UserPermissions {
   inventory: boolean;
-  debts: boolean; // Access to Ctas
-  transactions: boolean; // Access to History
+  debts: boolean;
+  transactions: boolean;
 }
 
 export interface Holder {
   id: string;
   name: string;
   username: string;
-  password?: string; // In a real app, never store plain text. Mock only.
+  password?: string;
   balance: number;
   role: UserRole;
   permissions?: UserPermissions;
@@ -41,62 +41,60 @@ export interface Transaction {
   date: string;
   amount: number;
   type: TransactionType;
-  holderId: string; // The person holding the cash
-  targetHolderId?: string; // For transfers
+  holderId: string;
+  targetHolderId?: string;
   description: string;
   category: string;
   status: TransactionStatus;
-  createdBy: string; // ID of the user who created it
+  createdBy: string;
 }
 
 export interface Debt {
   id: string;
-  entityName: string; // Person/Company owed/owing
+  entityName: string;
   amount: number;
   type: DebtType;
   description: string;
-  issueDate: string; // Date the debt was created
-  dueDate?: string;  // When it needs to be paid
+  issueDate: string;
+  dueDate?: string;
   isPaid: boolean;
-  status: TransactionStatus; // Pending or Validated
-  // Payment History Fields
+  status: TransactionStatus;
   paymentDate?: string;
   paymentHolderId?: string;
   paymentTransactionId?: string;
 }
 
-// Inventory Types
 export interface InventoryItem {
   id: string;
   name: string;
   description?: string;
   quantity: number;
-  averageCost: number; // Weighted Average Cost
-  unit: string; // e.g., 'units', 'kg', 'liters'
-  section: string; // Warehouse section or category
+  averageCost: number;
+  unit: string;
+  section: string;
   minStock?: number;
 }
 
 export interface InventoryMovement {
   id: string;
   itemId: string;
-  itemName: string; // Snapshot of name in case item is deleted
+  itemName: string;
   type: 'IN' | 'OUT';
   quantity: number;
-  unitCost?: number; // Cost at the time of movement (for IN)
+  unitCost?: number;
   date: string;
   reason: string;
 }
 
 export interface InventoryUnit {
   id: string;
-  name: string; // e.g. 'Kilogramos', 'Unidades'
-  abbreviation: string; // e.g. 'kg', 'u'
+  name: string;
+  abbreviation: string;
 }
 
 export interface InventorySection {
   id: string;
-  name: string; // e.g. 'Bodega Principal', 'Estantería A'
+  name: string;
 }
 
 export interface LogEntry {
@@ -117,4 +115,14 @@ export interface AppState {
   logs: LogEntry[];
   units: InventoryUnit[];
   sections: InventorySection[];
+}
+
+// Global declaration for Electron Bridge
+declare global {
+  interface Window {
+    electronAPI: {
+      saveData: (data: AppState) => Promise<boolean>;
+      loadData: () => Promise<AppState | null>;
+    };
+  }
 }
