@@ -1,11 +1,12 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import fs from 'fs';
-import sqlite3Pkg from 'sqlite3'; 
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 
-// Handle SQLite import in ESM environment
-const sqlite3 = sqlite3Pkg.verbose();
+// Necesario para importar módulos nativos como sqlite3 en un entorno ESM
+const require = createRequire(import.meta.url);
+const sqlite3 = require('sqlite3').verbose();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
