@@ -1,19 +1,16 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
-
-// Necesario para importar módulos nativos como sqlite3 en un entorno ESM
-const require = createRequire(import.meta.url);
-const sqlite3 = require('sqlite3').verbose();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// --- CONFIGURACIÓN DE RUTA ESPECÍFICA ---
-const TARGET_DIR = 'C:\\Users\\GameZone\\Downloads\\cashflow259\\sql';
-const DB_PATH = path.join(TARGET_DIR, 'cashflow_local.db');
+// --- CONFIGURACIÓN DE ALMACENAMIENTO ---
+// Ruta fija solicitada: C:\Users\GameZone\Downloads\cashflow259\sql
+// Nota: Aunque la carpeta se llama 'sql', guardamos un JSON
+const TARGET_DIR = 'C:\\Users\\GameZone\\Downloads\\cashflow259\\sql'; 
+const DB_FILE = path.join(TARGET_DIR, 'database.json');
 
 // Asegurar que el directorio existe
 if (!fs.existsSync(TARGET_DIR)) {
@@ -25,37 +22,28 @@ if (!fs.existsSync(TARGET_DIR)) {
   }
 }
 
-// Inicializar SQLite
-const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) {
-    console.error('Error abriendo base de datos:', err.message);
-  } else {
-    console.log('Conectado a la base de datos SQLite en:', DB_PATH);
-    initDb();
+// Inicializar archivo si no existe
+if (!fs.existsSync(DB_FILE)) {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify({}));
+    console.log('Base de datos JSON inicializada.');
+  } catch (err) {
+    console.error('Error inicializando DB:', err);
   }
-});
-
-function initDb() {
-  // Creamos una tabla simple key-value para guardar el estado completo de la app (JSON)
-  db.run(`CREATE TABLE IF NOT EXISTS app_store (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    data TEXT,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-  
-  // Insertar fila inicial si no existe
-  db.run(`INSERT OR IGNORE INTO app_store (id, data) VALUES (1, '{}')`);
 }
 
 let mainWindow;
 
 function createWindow() {
+  // IMPORTANTE: Usamos .cjs para CommonJS preload
+  const preloadPath = path.join(__dirname, 'preload.cjs');
+  console.log('Cargando preload desde:', preloadPath);
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     webPreferences: {
-      // IMPORTANTE: Usamos .cjs para asegurar compatibilidad con require() en el preload
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false 
@@ -65,8 +53,10 @@ function createWindow() {
   const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged;
   
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
-    // mainWindow.webContents.openDevTools();
+    // Esperar un poco para asegurar que Vite esté listo si se lanza concurrentemente
+    setTimeout(() => {
+        mainWindow.loadURL('http://localhost:5173').catch(e => console.error(e));
+    }, 1000);
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
@@ -75,46 +65,80 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
-  // --- IPC HANDLERS (Comunicación Front-Back) ---
+  // --- API HANDLERS ---
 
-  // Guardar datos
+  // Guardar datos (Sobrescribir JSON)
   ipcMain.handle('db-save', async (event, appState) => {
-    return new Promise((resolve, reject) => {
-      const json = JSON.stringify(appState);
-      db.run(
-        `UPDATE app_store SET data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
-        [json],
-        function (err) {
-          if (err) {
-            console.error('Error guardando:', err);
-            reject(err.message);
-          } else {
-            console.log('Datos guardados en SQLite');
-            resolve(true);
-          }
-        }
-      );
-    });
+    try {
+      fs.writeFileSync(DB_FILE, JSON.stringify(appState, null, 2));
+      // console.log('Datos guardados exitosamente.'); // Comentado para evitar spam en consola
+      return true;
+    } catch (err) {
+      console.error('Error guardando datos:', err);
+      throw err;
+    }
   });
 
   // Cargar datos
   ipcMain.handle('db-load', async () => {
-    return new Promise((resolve, reject) => {
-      db.get(`SELECT data FROM app_store WHERE id = 1`, (err, row) => {
-        if (err) {
-          console.error('Error cargando:', err);
-          reject(err.message);
-        } else {
-          try {
-            const data = row && row.data ? JSON.parse(row.data) : null;
-            if (data && Object.keys(data).length === 0) resolve(null);
-            else resolve(data);
-          } catch (e) {
-            reject('Error parseando JSON de DB');
-          }
-        }
-      });
+    try {
+      if (fs.existsSync(DB_FILE)) {
+        const raw = fs.readFileSync(DB_FILE, 'utf-8');
+        if (!raw) return null;
+        return JSON.parse(raw);
+      }
+      return null;
+    } catch (err) {
+      console.error('Error cargando datos:', err);
+      return null;
+    }
+  });
+
+  // Exportar Respaldo
+  ipcMain.handle('db-export', async () => {
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Exportar Respaldo de Seguridad',
+      defaultPath: `respaldo_cashflow_${new Date().toISOString().slice(0,10).replace(/-/g, '')}.json`,
+      filters: [{ name: 'JSON Data', extensions: ['json'] }]
     });
+
+    if (canceled || !filePath) return false;
+
+    try {
+      fs.copyFileSync(DB_FILE, filePath);
+      return true;
+    } catch (err) {
+      console.error('Error exportando:', err);
+      return false;
+    }
+  });
+
+  // Importar Respaldo
+  ipcMain.handle('db-import', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: 'Restaurar Respaldo',
+      filters: [{ name: 'JSON Data', extensions: ['json'] }],
+      properties: ['openFile']
+    });
+
+    if (canceled || filePaths.length === 0) return false;
+
+    try {
+      const sourcePath = filePaths[0];
+      // Leer para validar que es un JSON válido
+      const raw = fs.readFileSync(sourcePath, 'utf-8');
+      JSON.parse(raw); // Lanzará error si no es válido
+
+      // Sobrescribir la DB actual
+      fs.copyFileSync(sourcePath, DB_FILE);
+      
+      // Recargar la ventana para reflejar cambios
+      mainWindow.webContents.reload();
+      return true;
+    } catch (err) {
+      console.error('Error importando:', err);
+      return false;
+    }
   });
 
   app.on('activate', () => {
@@ -124,7 +148,6 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    db.close();
     app.quit();
   }
 });

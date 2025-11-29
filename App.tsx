@@ -78,7 +78,7 @@ const App: React.FC = () => {
 
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // --- 1. LOAD DATA FROM ELECTRON (SQLITE) ON START ---
+  // --- 1. LOAD DATA FROM ELECTRON ---
   useEffect(() => {
     const initData = async () => {
       setSyncStatus('syncing');
@@ -98,8 +98,8 @@ const App: React.FC = () => {
           setAppLoaded(true);
           setSyncStatus('idle');
         } else {
-          console.error("Electron API no detectada.");
-          setAppLoaded(true); // Fallback to mock data
+          console.error("Electron API no detectada. Ejecutando en modo fallback.");
+          setAppLoaded(true); 
         }
       } catch (error) {
         console.error("Error loading from DB:", error);
@@ -111,9 +111,9 @@ const App: React.FC = () => {
     initData();
   }, []);
 
-  // --- 2. AUTO-SAVE TO ELECTRON (SQLITE) ---
+  // --- 2. AUTO-SAVE TO ELECTRON ---
   useEffect(() => {
-    if (!appLoaded) return; // Don't save before initial load
+    if (!appLoaded) return; 
 
     const dataToSave: AppState = {
       holders,
@@ -139,7 +139,7 @@ const App: React.FC = () => {
         console.error("Error saving to DB:", err);
         setSyncStatus('error');
       }
-    }, 1000); // 1 second debounce
+    }, 1000); 
 
   }, [holders, transactions, debts, inventory, inventoryMovements, logs, units, sections, appLoaded]);
 
@@ -156,7 +156,7 @@ const App: React.FC = () => {
     if (window.innerWidth < 768) setIsSidebarOpen(false);
   }, []);
 
-  // --- LOGIC (Same as before) ---
+  // --- LOGIC ---
   const addLog = (action: string, details: string) => {
     if (!currentUser) return;
     const newLog: LogEntry = {
@@ -193,6 +193,23 @@ const App: React.FC = () => {
   const handleLogout = () => {
     addLog('LOGOUT', 'Cierre de sesión');
     setCurrentUser(null);
+  };
+
+  // --- BACKUP HANDLERS ---
+  const handleExportBackup = async () => {
+    if (window.electronAPI) {
+      const success = await window.electronAPI.exportBackup();
+      if (success) alert('Respaldo guardado correctamente.');
+    }
+  };
+
+  const handleImportBackup = async () => {
+    if (window.electronAPI) {
+      const success = await window.electronAPI.importBackup();
+      if (success) {
+        alert('Base de datos restaurada. La aplicación se ha recargado.');
+      }
+    }
   };
 
   const handleAddTransaction = (
@@ -504,6 +521,27 @@ const App: React.FC = () => {
           {canViewInventory && ( <NavItem active={currentView === View.INVENTORY} onClick={() => setCurrentView(View.INVENTORY)} icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />} label="Inventario" isExpanded={isSidebarOpen} /> )}
           {isAdmin && ( <NavItem active={currentView === View.JOURNAL} onClick={() => setCurrentView(View.JOURNAL)} icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />} label="Diario" isExpanded={isSidebarOpen} /> )}
 
+          {/* Backup Section */}
+          {isSidebarOpen && isAdmin && (
+            <div className="mt-6 px-2">
+              <p className="text-xs font-bold text-slate-400 uppercase mb-2">Respaldo</p>
+              <button 
+                onClick={handleExportBackup}
+                className="w-full flex items-center gap-2 p-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                Exportar Datos
+              </button>
+              <button 
+                onClick={handleImportBackup}
+                className="w-full flex items-center gap-2 p-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m-4 4v12" /></svg>
+                Restaurar Datos
+              </button>
+            </div>
+          )}
+
           <div className="pt-8 mt-auto pb-20 md:pb-0">
             {isSidebarOpen && (
               <div className="px-2 mb-4">
@@ -518,9 +556,9 @@ const App: React.FC = () => {
                       syncStatus === 'error' ? 'bg-red-500' : 'bg-slate-300'
                     }`}></div>
                     <span className="truncate">
-                      {syncStatus === 'saved' ? 'SQL Sincronizado' : 
-                       syncStatus === 'syncing' ? 'Guardando en SQL...' :
-                       syncStatus === 'error' ? 'Error SQL' : 'SQL Inactivo'}
+                      {syncStatus === 'saved' ? 'Datos Guardados' : 
+                       syncStatus === 'syncing' ? 'Guardando...' :
+                       syncStatus === 'error' ? 'Error al Guardar' : 'Offline'}
                     </span>
                  </div>
               </div>

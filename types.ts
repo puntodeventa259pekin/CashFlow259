@@ -1,4 +1,3 @@
-
 export enum TransactionType {
   INCOME = 'INGRESO',
   EXPENSE = 'EGRESO',
@@ -123,6 +122,8 @@ declare global {
     electronAPI: {
       saveData: (data: AppState) => Promise<boolean>;
       loadData: () => Promise<AppState | null>;
+      exportBackup: () => Promise<boolean>;
+      importBackup: () => Promise<boolean>;
     };
   }
 }
