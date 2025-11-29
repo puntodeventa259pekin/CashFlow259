@@ -1,14 +1,16 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import fsPromises from 'fs/promises';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 
+const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // --- CONFIGURACIÓN DE ALMACENAMIENTO ---
-// Ruta fija solicitada: C:\Users\GameZone\Downloads\cashflow259\sql
-// Nota: Aunque la carpeta se llama 'sql', guardamos un JSON
+// Ruta fija solicitada
 const TARGET_DIR = 'C:\\Users\\GameZone\\Downloads\\cashflow259\\sql'; 
 const DB_FILE = path.join(TARGET_DIR, 'database.json');
 
@@ -16,17 +18,17 @@ const DB_FILE = path.join(TARGET_DIR, 'database.json');
 if (!fs.existsSync(TARGET_DIR)) {
   try {
     fs.mkdirSync(TARGET_DIR, { recursive: true });
-    console.log(`Directorio creado: ${TARGET_DIR}`);
+    console.log(`Directorio de base de datos creado en: ${TARGET_DIR}`);
   } catch (err) {
-    console.error('Error creando directorio:', err);
+    console.error('Error crítico creando directorio de datos:', err);
   }
 }
 
 // Inicializar archivo si no existe
 if (!fs.existsSync(DB_FILE)) {
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify({}));
-    console.log('Base de datos JSON inicializada.');
+    fs.writeFileSync(DB_FILE, JSON.stringify({}, null, 2));
+    console.log('Archivo database.json inicializado.');
   } catch (err) {
     console.error('Error inicializando DB:', err);
   }
@@ -35,9 +37,15 @@ if (!fs.existsSync(DB_FILE)) {
 let mainWindow;
 
 function createWindow() {
-  // IMPORTANTE: Usamos .cjs para CommonJS preload
+  // Apuntar explícitamente al archivo .cjs que acabamos de crear
   const preloadPath = path.join(__dirname, 'preload.cjs');
-  console.log('Cargando preload desde:', preloadPath);
+  
+  // Verificación de existencia para depuración
+  if (!fs.existsSync(preloadPath)) {
+      console.error("CRITICAL ERROR: preload.cjs not found at " + preloadPath);
+  } else {
+      console.log('Cargando preload desde:', preloadPath);
+  }
 
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -45,7 +53,7 @@ function createWindow() {
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
-      contextIsolation: true,
+      contextIsolation: true, // Debe ser true para contextBridge
       sandbox: false 
     },
   });
@@ -53,7 +61,6 @@ function createWindow() {
   const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged;
   
   if (isDev) {
-    // Esperar un poco para asegurar que Vite esté listo si se lanza concurrentemente
     setTimeout(() => {
         mainWindow.loadURL('http://localhost:5173').catch(e => console.error(e));
     }, 1000);
@@ -65,17 +72,19 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
-  // --- API HANDLERS ---
+  // --- API HANDLERS (SISTEMA DE ARCHIVOS) ---
 
-  // Guardar datos (Sobrescribir JSON)
+  // Guardado Atómico
   ipcMain.handle('db-save', async (event, appState) => {
+    const tempFile = `${DB_FILE}.tmp`;
     try {
-      fs.writeFileSync(DB_FILE, JSON.stringify(appState, null, 2));
-      // console.log('Datos guardados exitosamente.'); // Comentado para evitar spam en consola
+      const data = JSON.stringify(appState, null, 2);
+      await fsPromises.writeFile(tempFile, data, 'utf-8');
+      await fsPromises.rename(tempFile, DB_FILE);
       return true;
     } catch (err) {
-      console.error('Error guardando datos:', err);
-      throw err;
+      console.error('CRITICAL: Error guardando datos en disco:', err);
+      return false;
     }
   });
 
@@ -83,13 +92,18 @@ app.whenReady().then(() => {
   ipcMain.handle('db-load', async () => {
     try {
       if (fs.existsSync(DB_FILE)) {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
-        if (!raw) return null;
-        return JSON.parse(raw);
+        const raw = await fsPromises.readFile(DB_FILE, 'utf-8');
+        if (!raw || raw.trim() === '') return null;
+        try {
+            return JSON.parse(raw);
+        } catch (parseErr) {
+            console.error('Error parseando JSON:', parseErr);
+            return null; 
+        }
       }
       return null;
     } catch (err) {
-      console.error('Error cargando datos:', err);
+      console.error('Error leyendo archivo de datos:', err);
       return null;
     }
   });
@@ -105,7 +119,7 @@ app.whenReady().then(() => {
     if (canceled || !filePath) return false;
 
     try {
-      fs.copyFileSync(DB_FILE, filePath);
+      await fsPromises.copyFile(DB_FILE, filePath);
       return true;
     } catch (err) {
       console.error('Error exportando:', err);
@@ -125,14 +139,9 @@ app.whenReady().then(() => {
 
     try {
       const sourcePath = filePaths[0];
-      // Leer para validar que es un JSON válido
-      const raw = fs.readFileSync(sourcePath, 'utf-8');
-      JSON.parse(raw); // Lanzará error si no es válido
-
-      // Sobrescribir la DB actual
-      fs.copyFileSync(sourcePath, DB_FILE);
-      
-      // Recargar la ventana para reflejar cambios
+      const raw = await fsPromises.readFile(sourcePath, 'utf-8');
+      JSON.parse(raw); // Validar JSON
+      await fsPromises.copyFile(sourcePath, DB_FILE);
       mainWindow.webContents.reload();
       return true;
     } catch (err) {

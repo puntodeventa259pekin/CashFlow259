@@ -94,15 +94,18 @@ const App: React.FC = () => {
             setLogs(data.logs || []);
             setUnits(data.units || INITIAL_UNITS);
             setSections(data.sections || INITIAL_SECTIONS);
+            console.log("Datos cargados exitosamente desde archivo local.");
+          } else {
+             console.log("No se encontraron datos previos, iniciando con valores por defecto.");
           }
           setAppLoaded(true);
           setSyncStatus('idle');
         } else {
-          console.error("Electron API no detectada. Ejecutando en modo fallback.");
+          console.error("Electron API no detectada. Ejecutando en modo fallback (Memoria).");
           setAppLoaded(true); 
         }
       } catch (error) {
-        console.error("Error loading from DB:", error);
+        console.error("Error cargando DB:", error);
         setSyncStatus('error');
         setAppLoaded(true);
       }
@@ -111,7 +114,7 @@ const App: React.FC = () => {
     initData();
   }, []);
 
-  // --- 2. AUTO-SAVE TO ELECTRON ---
+  // --- 2. AUTO-SAVE TO ELECTRON (OPTIMIZED) ---
   useEffect(() => {
     if (!appLoaded) return; 
 
@@ -129,17 +132,22 @@ const App: React.FC = () => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     
     setSyncStatus('syncing');
+    // Guardar después de 500ms de inactividad (más rápido para asegurar persistencia)
     saveTimeoutRef.current = setTimeout(async () => {
       try {
         if (window.electronAPI) {
-            await window.electronAPI.saveData(dataToSave);
-            setSyncStatus('saved');
+            const success = await window.electronAPI.saveData(dataToSave);
+            if (success) {
+                setSyncStatus('saved');
+            } else {
+                setSyncStatus('error');
+            }
         }
       } catch (err) {
-        console.error("Error saving to DB:", err);
+        console.error("Error guardando en DB:", err);
         setSyncStatus('error');
       }
-    }, 1000); 
+    }, 500); 
 
   }, [holders, transactions, debts, inventory, inventoryMovements, logs, units, sections, appLoaded]);
 
