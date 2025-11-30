@@ -40,6 +40,7 @@ enum View {
 }
 
 const SESSION_KEY = 'CASHFLOW_PRO_SESSION_V1';
+const DB_STORAGE_KEY = 'CASHFLOW_DB_V1';
 
 const App: React.FC = () => {
   // Session Persistence
@@ -78,7 +79,7 @@ const App: React.FC = () => {
 
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // --- 1. LOAD DATA FROM ELECTRON ---
+  // --- 1. LOAD DATA (ELECTRON OR WEB) ---
   useEffect(() => {
     const initData = async () => {
       setSyncStatus('syncing');
@@ -98,12 +99,27 @@ const App: React.FC = () => {
           } else {
              console.log("No se encontraron datos previos, iniciando con valores por defecto.");
           }
-          setAppLoaded(true);
-          setSyncStatus('idle');
         } else {
-          console.error("Electron API no detectada. Ejecutando en modo fallback (Memoria).");
-          setAppLoaded(true); 
+          console.log("Modo Web: Intentando cargar desde LocalStorage.");
+          const localData = localStorage.getItem(DB_STORAGE_KEY);
+          if (localData) {
+            try {
+              const data = JSON.parse(localData);
+              if (data) {
+                setHolders(data.holders || INITIAL_HOLDERS);
+                setTransactions(data.transactions || []);
+                setDebts(data.debts || []);
+                setInventory(data.inventory || []);
+                setInventoryMovements(data.inventoryMovements || []);
+                setLogs(data.logs || []);
+                setUnits(data.units || INITIAL_UNITS);
+                setSections(data.sections || INITIAL_SECTIONS);
+              }
+            } catch (e) { console.error("Error leyendo LocalStorage", e); }
+          }
         }
+        setAppLoaded(true);
+        setSyncStatus('idle');
       } catch (error) {
         console.error("Error cargando DB:", error);
         setSyncStatus('error');
@@ -114,7 +130,7 @@ const App: React.FC = () => {
     initData();
   }, []);
 
-  // --- 2. AUTO-SAVE TO ELECTRON (OPTIMIZED) ---
+  // --- 2. AUTO-SAVE (ELECTRON OR WEB) ---
   useEffect(() => {
     if (!appLoaded) return; 
 
@@ -132,22 +148,22 @@ const App: React.FC = () => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     
     setSyncStatus('syncing');
-    // Guardar después de 500ms de inactividad (más rápido para asegurar persistencia)
+    
     saveTimeoutRef.current = setTimeout(async () => {
       try {
         if (window.electronAPI) {
             const success = await window.electronAPI.saveData(dataToSave);
-            if (success) {
-                setSyncStatus('saved');
-            } else {
-                setSyncStatus('error');
-            }
+            setSyncStatus(success ? 'saved' : 'error');
+        } else {
+            // WEB FALLBACK: Save to LocalStorage
+            localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(dataToSave));
+            setSyncStatus('saved');
         }
       } catch (err) {
         console.error("Error guardando en DB:", err);
         setSyncStatus('error');
       }
-    }, 500); 
+    }, 1000); 
 
   }, [holders, transactions, debts, inventory, inventoryMovements, logs, units, sections, appLoaded]);
 
@@ -205,9 +221,22 @@ const App: React.FC = () => {
 
   // --- BACKUP HANDLERS ---
   const handleExportBackup = async () => {
+    const dataToExport = { holders, transactions, debts, inventory, inventoryMovements, logs, units, sections };
+    
     if (window.electronAPI) {
       const success = await window.electronAPI.exportBackup();
-      if (success) alert('Respaldo guardado correctamente.');
+      if (success) alert('Respaldo guardado correctamente en la carpeta local.');
+    } else {
+      // WEB FALLBACK: Download JSON
+      const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `cashflow_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     }
   };
 
@@ -217,6 +246,39 @@ const App: React.FC = () => {
       if (success) {
         alert('Base de datos restaurada. La aplicación se ha recargado.');
       }
+    } else {
+      // WEB FALLBACK: Upload JSON
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json';
+      input.onchange = (e: any) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+             const json = JSON.parse(event.target?.result as string);
+             if (json) {
+                setHolders(json.holders || []);
+                setTransactions(json.transactions || []);
+                setDebts(json.debts || []);
+                setInventory(json.inventory || []);
+                setInventoryMovements(json.inventoryMovements || []);
+                setLogs(json.logs || []);
+                setUnits(json.units || []);
+                setSections(json.sections || []);
+                
+                // Force save to localStorage
+                localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(json));
+                alert('Datos importados y restaurados correctamente.');
+             }
+          } catch(err) {
+             alert('Error: Archivo inválido o corrupto.');
+          }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
     }
   };
 
@@ -535,14 +597,14 @@ const App: React.FC = () => {
               <p className="text-xs font-bold text-slate-400 uppercase mb-2">Respaldo</p>
               <button 
                 onClick={handleExportBackup}
-                className="w-full flex items-center gap-2 p-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+                className="w-full flex items-center gap-2 p-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors text-left"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                 Exportar Datos
               </button>
               <button 
                 onClick={handleImportBackup}
-                className="w-full flex items-center gap-2 p-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+                className="w-full flex items-center gap-2 p-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors text-left"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m-4 4v12" /></svg>
                 Restaurar Datos

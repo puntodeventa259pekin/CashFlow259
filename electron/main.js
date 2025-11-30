@@ -3,9 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
 import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
 
-const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -37,12 +35,12 @@ if (!fs.existsSync(DB_FILE)) {
 let mainWindow;
 
 function createWindow() {
-  // Apuntar explícitamente al archivo .cjs que acabamos de crear
-  const preloadPath = path.join(__dirname, 'preload.cjs');
+  // CORRECCIÓN: Apuntar al archivo correcto (preload.js)
+  const preloadPath = path.join(__dirname, 'preload.js');
   
   // Verificación de existencia para depuración
   if (!fs.existsSync(preloadPath)) {
-      console.error("CRITICAL ERROR: preload.cjs not found at " + preloadPath);
+      console.error("CRITICAL ERROR: preload.js not found at " + preloadPath);
   } else {
       console.log('Cargando preload desde:', preloadPath);
   }
@@ -53,7 +51,7 @@ function createWindow() {
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
-      contextIsolation: true, // Debe ser true para contextBridge
+      contextIsolation: true,
       sandbox: false 
     },
   });
